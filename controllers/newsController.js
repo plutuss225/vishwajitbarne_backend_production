@@ -187,8 +187,6 @@ exports.updateNews = async (req, res) => {
 };
 
 // DELETE NEWS
-const { deleteImageFromCloudinary } = require("../utils/cloudinary");
-
 exports.deleteNews = async (req, res) => {
   const newsId = parseInt(req.params.id);
 
@@ -198,16 +196,7 @@ exports.deleteNews = async (req, res) => {
       select: { image: true },
     });
 
-    if (selectResult) {
-      console.log("deleteNews -> Image URL from DB:", selectResult.image);
-      // Wait, in previous sql image was string if varchar, but Prisma might return buffer if it was bytes in DB. 
-      // Need to handle cloudinary deletion. Cloudinary URL is typically a string.
-      // If it's a buffer, converting it to string might be needed, but if it was stored as bytes it's a bit tricky.
-      // We will assume string conversion is fine if needed, or if it was stored as bytes the original code also just passed the buffer/string.
-      if (selectResult.image) {
-        await deleteImageFromCloudinary(selectResult.image.toString('utf-8')); 
-      }
-    }
+    // Cloudinary logic removed
 
     await prisma.news.delete({
       where: { id: newsId },

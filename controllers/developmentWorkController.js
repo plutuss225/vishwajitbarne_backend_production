@@ -1,6 +1,5 @@
 const prisma = require("../config/prisma");
 const { translateText, getTargetLanguage } = require("../utils/translator");
-const { deleteImageFromCloudinary } = require("../utils/cloudinary");
 
 async function translateDevelopmentWorkItem(item, targetLang) {
   if (!targetLang) return item;
@@ -197,18 +196,6 @@ exports.deleteDevelopmentWork = async (req, res) => {
   const development_workId = parseInt(req.params.id);
 
   try {
-    const selectResult = await prisma.development_work.findUnique({
-      where: { id: development_workId },
-      select: { image: true },
-    });
-
-    if (selectResult) {
-      console.log("deleteDevelopmentWork -> Image URL from DB:", selectResult.image);
-      if (selectResult.image) {
-        await deleteImageFromCloudinary(selectResult.image.toString('utf-8'));
-      }
-    }
-
     await prisma.development_work.delete({
       where: { id: development_workId },
     });

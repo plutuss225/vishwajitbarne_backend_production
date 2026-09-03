@@ -1,5 +1,4 @@
 const prisma = require("../config/prisma");
-const { deleteImageFromCloudinary } = require("../utils/cloudinary");
 const { translateText, getTargetLanguage } = require("../utils/translator");
 
 async function translateEventItem(item, targetLang) {
@@ -156,9 +155,7 @@ exports.deleteEvent = async (req, res) => {
       select: { main_image: true },
     });
 
-    if (selectResult && selectResult.main_image) {
-      await deleteImageFromCloudinary(selectResult.main_image.toString('utf-8'));
-    }
+    // Cloudinary logic removed
 
     await prisma.event.delete({
       where: { id: eventId },

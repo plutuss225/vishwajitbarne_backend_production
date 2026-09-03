@@ -1,6 +1,5 @@
 const prisma = require("../config/prisma");
 const { translateText, getTargetLanguage } = require("../utils/translator");
-const { deleteImageFromCloudinary } = require("../utils/cloudinary");
 
 async function translateImageItem(item, targetLang) {
   if (!targetLang || !item.title) return item;
@@ -133,9 +132,7 @@ exports.deleteImage = async (req, res) => {
       where: { id: imageId },
     });
 
-    if (selectResult.image) {
-      await deleteImageFromCloudinary(selectResult.image.toString('utf-8'));
-    }
+    // Cloudinary logic removed
 
     res.json({ message: "Image deleted successfully" });
   } catch (err) {

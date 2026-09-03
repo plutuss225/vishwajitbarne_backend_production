@@ -1,6 +1,5 @@
 const prisma = require("../config/prisma");
 const { translateText, getTargetLanguage } = require("../utils/translator");
-const { deleteImageFromCloudinary } = require("../utils/cloudinary");
 
 // Helper to parse Prisma Bytes object back to a string URL
 function parsePrismaBuffer(bufferObj) {
@@ -341,10 +340,6 @@ exports.deleteBlog = async (req, res) => {
     if (!selectResult) return res.status(404).json({ error: "Blog not found" });
 
     await prisma.blogs.delete({ where: { id } });
-
-    if (selectResult.image) {
-      await deleteImageFromCloudinary(selectResult.image.toString('utf-8'));
-    }
 
     res.json({ message: "Blog deleted successfully" });
   } catch (err) {

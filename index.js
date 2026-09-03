@@ -47,11 +47,10 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 // Upload Endpoint
-const { uploadImage } = require("./utils/cloudinary");
 console.log("RENDER SQL_HOST IS:", process.env.SQL_HOST);
 app.post("/api/upload", async (req, res) => {
   const { name, base64 } = req.body;
-  if (!base64) return res.status(400).json({ error: "No image base64 data provided" });
+  if (!base64) return res.status(400).json({ error: "No image/video base64 data provided" });
 
   try {
     const matches = base64.match(/^data:([A-Za-z0-9-+\/]+);base64,(.+)$/);
@@ -59,8 +58,9 @@ app.post("/api/upload", async (req, res) => {
       return res.status(400).json({ error: "Invalid base64 string format" });
     }
 
-    const secureUrl = await uploadImage(base64, "uploads");
-    res.json({ url: secureUrl });
+    // Return the base64 string directly so frontend can submit it to controllers 
+    // and controllers will save it as a Blob/Buffer in the database.
+    res.json({ url: base64 });
   } catch (err) {
     console.error("Upload error:", err);
     res.status(500).json({ error: "Failed to upload file: " + err.message });
