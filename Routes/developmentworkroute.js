@@ -24,6 +24,9 @@ router.get("/by-category", getDevelopmentWorkByCategory);
 // GET TOP 3 NEWS BY CATEGORY (max 3, optional ?category=Sports)
 router.get("/by-category/top", getTopDevelopmentWorkByCategory);
 
+// GET LATEST BY PLACES
+router.get("/latest-by-places", require("../controllers/developmentWorkController").getLatestDevelopmentWorkByPlaces);
+
 // GET BY ID
 router.get("/:id", getDevelopmentWorkById);
 
@@ -35,5 +38,7 @@ router.put("/:id", authMiddleware, updateDevelopmentWork);
 
 // DELETE NEWS
 router.delete("/:id", authMiddleware, deleteDevelopmentWork);
+
+
 
 module.exports = router;
