@@ -486,11 +486,12 @@ exports.getLatestDevelopmentWorkByPlaces = async (req, res) => {
     const places = [
       { marathi: 'थेरगाव', db: 'थेरगाव' },
       { marathi: 'वाकड', db: 'वाकड' },
-      { marathi: 'काळेवाडी', db: 'Kalewadi' },
-      { marathi: 'पिंपरी चिंचवड', db: 'Pimpri Chinchwad' },
-      { marathi: 'गणेश नगर', db: 'Ganesh Nagar' },
-      { marathi: 'मोशी', db: 'Moshi' },
-      { marathi: 'मावळ', db: 'Maval' }
+      { marathi: 'काळेवाडी', db: 'काळेवाडी' },
+      { marathi: 'पिंपरी चिंचवड', db: 'पिंपरी चिंचवड' },
+      { marathi: 'गणेश नगर', db: 'गणेश नगर' },
+      { marathi: 'मोशी', db: 'मोशी' },
+      { marathi: 'मावळ', db: 'मावळ' },
+      { marathi: 'गुजर नगर', db: 'गुजर नगर' }
     ];
     
     const selectFields = {
@@ -791,36 +792,6 @@ exports.getTopDevelopmentWorkByCategory = async (req, res) => {
   }
 };
 
-exports.getLatestDevelopmentWorkByPlaces = async (req, res) => {
-  const places = [
-    { marathi: 'गुजर नगर', db: 'गुजर नगर' },
-    { marathi: 'थेरगाव', db: 'थेरगाव' },
-    { marathi: 'काळेवाडी', db: 'Kalewadi' },
-    { marathi: 'पिंपरी चिंचवड', db: 'Pimpri Chinchwad' },
-    { marathi: 'गणेश नगर', db: 'Ganesh Nagar' },
-    { marathi: 'मोशी', db: 'Moshi' },
-    { marathi: 'मावळ', db: 'Maval' }
-  ];
-  try {
-    const results = [];
-    for (const place of places) {
-      const work = await prisma.development_work.findFirst({
-        where: { place: { contains: place.db } },
-        orderBy: [{ news_date: 'desc' }, { id: 'desc' }]
-      });
-      if (work) results.push({ ...work, searchedPlace: place.marathi });
-    }
-    const targetLang = getTargetLanguage(req);
-    let finalResult = results;
-    if (targetLang) {
-      finalResult = await Promise.all(results.map(item => translateDevelopmentWorkItem(item, targetLang)));
-    }
-    return res.status(200).json(finalResult);
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: "Failed to fetch latest development works by place" });
-  }
-};
 
 // STREAM VIDEO ENDPOINT
 exports.streamDevelopmentWorkVideo = async (req, res) => {
