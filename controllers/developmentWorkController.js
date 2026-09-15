@@ -395,6 +395,349 @@ exports.getDevelopmentWorkByCategory = async (req, res) => {
 
 // GET TOP 3 NEWS BY CATEGORY (latest 3, useful for homepage sections)
 exports.getTopDevelopmentWorkByCategory = async (req, res) => {
+    const { category } = req.query;
+    const where = category ? { category } : {};
+    
+    const selectFields = {
+      id: true,
+      title: true,
+      category: true,
+      description: true,
+      news_date: true,
+      place: true,
+    };
+
+    try {
+      let result = await prisma.development_work.findMany({
+        where,
+        orderBy: [{ news_date: 'desc' }, { id: 'desc' }],
+        take: 3,
+        select: selectFields
+      });
+
+      if (result.length > 0) {
+        const ids = result.map(r => r.id);
+        const mediaThumbnails = await prisma.$queryRawUnsafe(`
+          SELECT id, image, video,
+                 SUBSTRING_INDEX(images, ',data:', 1) as images,
+                 SUBSTRING_INDEX(videos, ',data:', 1) as videos
+          FROM development_work
+          WHERE id IN (${ids.join(',')})
+        `);
+  
+        const mediaMap = {};
+        for (const m of mediaThumbnails) {
+          mediaMap[m.id] = m;
+        }
+  
+        result = result.map(item => ({
+          ...item,
+          image: mediaMap[item.id]?.image,
+          video: mediaMap[item.id]?.video,
+          images: getFirstMedia(mediaMap[item.id]?.images),
+          videos: getFirstMedia(mediaMap[item.id]?.videos)
+        }));
+      }
+
+      let finalResult = result;
+      const targetLang = getTargetLanguage(req);
+      if (targetLang) {
+        try {
+          finalResult = await Promise.all(
+            result.map((item) => translateDevelopmentWorkItem(item, targetLang))
+          );
+        } catch (transErr) {
+          console.error("Error translating top development_work by category:", transErr.message);
+        }
+      }
+
+      res.json(finalResult);
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+};
+
+exports.getLatestDevelopmentWorkByPlaces = async (req, res) => {
+    const places = [
+      { marathi: 'थेरगाव', db: 'थेरगाव' },
+      { marathi: 'वाकड', db: 'वाकड' },
+      { marathi: 'काळेवाडी', db: 'Kalewadi' },
+      { marathi: 'पिंपरी चिंचवड', db: 'Pimpri Chinchwad' },
+      { marathi: 'गणेश नगर', db: 'Ganesh Nagar' },
+      { marathi: 'मोशी', db: 'Moshi' },
+      { marathi: 'मावळ', db: 'Maval' }
+    ];
+    
+    const selectFields = {
+      id: true,
+      title: true,
+      category: true,
+      description: true,
+      news_date: true,
+      place: true,
+    };
+
+    try {
+      let results = [];
+      for (const place of places) {
+        const work = await prisma.development_work.findFirst({
+          where: { place: { contains: place.db } },
+          orderBy: [{ news_date: 'desc' }, { id: 'desc' }],
+          select: selectFields
+        });
+        if (work) results.push({ ...work, searchedPlace: place.marathi });
+      }
+
+      if (results.length > 0) {
+        const ids = results.map(r => r.id);
+        const mediaThumbnails = await prisma.$queryRawUnsafe(`
+          SELECT id, image, video,
+                 SUBSTRING_INDEX(images, ',data:', 1) as images,
+                 SUBSTRING_INDEX(videos, ',data:', 1) as videos
+          FROM development_work
+          WHERE id IN (${ids.join(',')})
+        `);
+  
+        const mediaMap = {};
+        for (const m of mediaThumbnails) {
+          mediaMap[m.id] = m;
+        }
+  
+        results = results.map(item => ({
+          ...item,
+          image: mediaMap[item.id]?.image,
+          video: mediaMap[item.id]?.video,
+          images: getFirstMedia(mediaMap[item.id]?.images),
+          videos: getFirstMedia(mediaMap[item.id]?.videos)
+        }));
+      }
+
+      const targetLang = getTargetLanguage(req);
+      let finalResult = results;
+      if (targetLang) {
+        try {
+          finalResult = await Promise.all(
+            results.map((item) => translateDevelopmentWorkItem(item, targetLang))
+          );
+        } catch (transErr) {
+          console.error("Error translating development_work by places:", transErr.message);
+        }
+      }
+
+      res.json(finalResult);
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+};
+
+// INSERT NEWS
+exports.createDevelopmentWork = async (req, res) => {
+  const { title, category, place, description, image, video, images, videos, news_date } = req.body;
+
+  try {
+    const result = await prisma.development_work.create({
+      data: {
+        title,
+        category: category || 'DevelopmentWork',
+        place,
+        description,
+        image: typeof image === 'string' ? Buffer.from(image, 'utf-8') : image,
+        video: typeof video === 'string' ? Buffer.from(video, 'utf-8') : video,
+        images: typeof images === 'object' ? JSON.stringify(images) : images,
+        videos: typeof videos === 'object' ? JSON.stringify(videos) : videos,
+        news_date: news_date ? new Date(news_date) : null,
+      },
+    });
+    res.json({ message: "DevelopmentWork added", result });
+  } catch (err) {
+    console.error("Error creating development work:", err);
+    return res.status(500).json({ error: err.message || "Failed to create" });
+  }
+};
+
+// UPDATE NEWS
+exports.updateDevelopmentWork = async (req, res) => {
+  const { title, category, place, description, image, video, images, videos, news_date } = req.body;
+
+  try {
+    const result = await prisma.development_work.update({
+      where: { id: parseInt(req.params.id) },
+      data: {
+        title,
+        category: category || 'DevelopmentWork',
+        place,
+        description,
+        image: typeof image === 'string' ? Buffer.from(image, 'utf-8') : image,
+        video: typeof video === 'string' ? Buffer.from(video, 'utf-8') : video,
+        images: typeof images === 'object' ? JSON.stringify(images) : images,
+        videos: typeof videos === 'object' ? JSON.stringify(videos) : videos,
+        news_date: news_date ? new Date(news_date) : null,
+      },
+    });
+    res.json({ message: "Updated", result });
+  } catch (err) {
+    console.error("Error updating development work:", err);
+    return res.status(500).json({ error: err.message || "Failed to update" });
+  }
+};
+
+// DELETE NEWS
+exports.deleteDevelopmentWork = async (req, res) => {
+  const development_workId = parseInt(req.params.id);
+
+  try {
+    await prisma.development_work.delete({
+      where: { id: development_workId },
+    });
+
+    res.json({ message: "Deleted" });
+  } catch (err) {
+    return res.status(500).json(err);
+  }
+};
+
+// GET CATEGORIES (max 4 distinct from development_work table)
+exports.getCategories = async (req, res) => {
+  try {
+    const categories = await prisma.development_work.findMany({
+      select: { category: true },
+      distinct: ['category'],
+      where: {
+        category: { not: null, not: '' },
+      },
+      orderBy: { category: 'asc' },
+    });
+
+    const places = await prisma.development_work.findMany({
+      select: { place: true },
+      distinct: ['place'],
+      where: {
+        place: { not: null, not: '' },
+      },
+      orderBy: { place: 'asc' },
+    });
+
+    const originalCategories = categories
+      .map((r) => r.category)
+      .filter((c) => c && c.trim() !== '');
+
+    const originalPlaces = places
+      .map((r) => r.place)
+      .filter((c) => c && c.trim() !== '');
+
+    const targetLang = getTargetLanguage(req);
+    if (targetLang) {
+      try {
+        const translatedCategories = await Promise.all(
+          originalCategories.map((c) => translateText(c, targetLang))
+        );
+        const resultCategories = originalCategories.map((c, i) => ({
+          key: c,
+          label: translatedCategories[i]
+        }));
+
+        const translatedPlaces = await Promise.all(
+          originalPlaces.map((p) => translateText(p, targetLang))
+        );
+        const resultPlaces = originalPlaces.map((p, i) => ({
+          key: p,
+          label: translatedPlaces[i]
+        }));
+
+        return res.json({ categories: resultCategories, places: resultPlaces });
+      } catch (transErr) {
+        console.error("Error translating categories/places:", transErr.message);
+      }
+    }
+
+    const resultCategories = originalCategories.map(c => ({ key: c, label: c }));
+    const resultPlaces = originalPlaces.map(p => ({ key: p, label: p }));
+    res.json({ categories: resultCategories, places: resultPlaces });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+};
+
+// GET ALL NEWS BY CATEGORY (filtered, latest first)
+exports.getDevelopmentWorkByCategory = async (req, res) => {
+  let { category, search, page, limit } = req.query;
+
+  const where = {};
+
+  if (category) {
+    where.category = category;
+  }
+
+  if (search) {
+    where.OR = [
+      { title: { contains: search } },
+      { description: { contains: search } },
+    ];
+  }
+
+  try {
+    if (page && limit) {
+      const parsedPage = parseInt(page);
+      const parsedLimit = parseInt(limit);
+      const offset = (parsedPage - 1) * parsedLimit;
+
+      const [total, result] = await Promise.all([
+        prisma.development_work.count({ where }),
+        prisma.development_work.findMany({
+          where,
+          orderBy: [{ news_date: 'desc' }, { id: 'desc' }],
+          skip: offset,
+          take: parsedLimit,
+        }),
+      ]);
+
+      let finalResult = result;
+      const targetLang = getTargetLanguage(req);
+      if (targetLang) {
+        try {
+          finalResult = await Promise.all(
+            result.map((item) => translateDevelopmentWorkItem(item, targetLang))
+          );
+        } catch (transErr) {
+          console.error("Error translating development_work by category:", transErr.message);
+        }
+      }
+
+      return res.json({
+        data: finalResult,
+        total,
+        page: parsedPage,
+        limit: parsedLimit,
+        totalPages: Math.ceil(total / parsedLimit)
+      });
+    } else {
+      const result = await prisma.development_work.findMany({
+        where,
+        orderBy: [{ news_date: 'desc' }, { id: 'desc' }],
+        take: 20,
+      });
+
+      let finalResult = result;
+      const targetLang = getTargetLanguage(req);
+      if (targetLang) {
+        try {
+          finalResult = await Promise.all(
+            result.map((item) => translateDevelopmentWorkItem(item, targetLang))
+          );
+        } catch (transErr) {
+          console.error("Error translating development_work by category:", transErr.message);
+        }
+      }
+
+      return res.json(finalResult);
+    }
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+};
+
+// GET TOP 3 NEWS BY CATEGORY (latest 3, useful for homepage sections)
+exports.getTopDevelopmentWorkByCategory = async (req, res) => {
   const { category } = req.query;
   const where = category ? { category } : {};
 
