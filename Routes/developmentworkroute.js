@@ -9,7 +9,8 @@ const {
   getCategories,
   getDevelopmentWorkByCategory,
   getTopDevelopmentWorkByCategory,
-  streamDevelopmentWorkVideo
+  streamDevelopmentWorkVideo,
+  getLatestDevelopmentWorkByYear
 } = require("../controllers/developmentWorkController");
 const authMiddleware = require("../middleware/authMiddleware");
 
@@ -30,6 +31,9 @@ router.get("/media/:id", streamDevelopmentWorkVideo);
 
 // GET LATEST BY PLACES
 router.get("/latest-by-places", require("../controllers/developmentWorkController").getLatestDevelopmentWorkByPlaces);
+
+// GET LATEST 1 PER YEAR (4 most recent years)
+router.get("/latest-by-year", getLatestDevelopmentWorkByYear);
 
 // GET BY ID
 router.get("/:id", getDevelopmentWorkById);

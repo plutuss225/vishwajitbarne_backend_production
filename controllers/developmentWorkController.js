@@ -825,3 +825,95 @@ exports.streamDevelopmentWorkVideo = async (req, res) => {
     res.status(500).send('Error');
   }
 };
+
+// GET LATEST 1 DEVELOPMENT WORK PER MONTH (for the 4 most recent months)
+exports.getLatestDevelopmentWorkByYear = async (req, res) => {
+  const selectFields = {
+    id: true,
+    title: true,
+    category: true,
+    description: true,
+    news_date: true,
+    place: true,
+  };
+
+  try {
+    // Build the 4 most recent months (current month + 3 before it)
+    const now = new Date();
+    const months = [];
+    for (let i = 0; i < 4; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({ year: d.getFullYear(), month: d.getMonth() + 1 }); // month is 1-indexed
+    }
+
+    // Step 2: For each month, fetch the single latest record
+    const results = [];
+    for (const { year, month } of months) {
+      const startOfMonth = new Date(year, month - 1, 1);
+      const endOfMonth   = new Date(year, month, 0, 23, 59, 59, 999); // last day of month
+
+      const item = await prisma.development_work.findFirst({
+        where: {
+          news_date: { gte: startOfMonth, lte: endOfMonth }
+        },
+        orderBy: [{ news_date: 'desc' }, { id: 'desc' }],
+        select: selectFields
+      });
+
+      if (item) results.push({ ...item, year, month });
+    }
+
+    // Step 3: Attach thumbnail media for each result
+    if (results.length > 0) {
+      const ids = results.map(r => r.id);
+      const mediaThumbnails = await prisma.$queryRawUnsafe(`
+        SELECT id,
+               SUBSTRING_INDEX(image, ',data:', 1) AS image,
+               SUBSTRING_INDEX(images, ',data:', 1) AS images,
+               CASE WHEN (video IS NOT NULL AND LENGTH(video) > 10) OR (videos IS NOT NULL AND LENGTH(videos) > 10) THEN 1 ELSE 0 END AS has_video,
+               CASE WHEN videos IS NOT NULL AND (videos LIKE '%youtube.com%' OR videos LIKE '%youtu.be%') THEN videos ELSE NULL END AS youtube_url
+        FROM development_work
+        WHERE id IN (${ids.join(',')})
+      `);
+
+      const mediaMap = {};
+      for (const m of mediaThumbnails) {
+        mediaMap[m.id] = m;
+      }
+
+      for (let i = 0; i < results.length; i++) {
+        const m = mediaMap[results[i].id];
+        let videoUrl = null;
+        if (m && m.youtube_url) {
+          videoUrl = m.youtube_url.split(',')[0].trim();
+        } else if (m && m.has_video) {
+          videoUrl = 'api/development_work/media/' + results[i].id + '.mp4';
+        }
+        results[i] = {
+          ...results[i],
+          image: getFirstMedia(m?.image),
+          video: null,
+          images: getFirstMedia(m?.images),
+          videos: videoUrl
+        };
+      }
+    }
+
+    // Step 4: Optional translation
+    const targetLang = getTargetLanguage(req);
+    let finalResult = results;
+    if (targetLang) {
+      try {
+        finalResult = await Promise.all(
+          results.map(item => translateDevelopmentWorkItem(item, targetLang))
+        );
+      } catch (transErr) {
+        console.error("Error translating latest-by-month:", transErr.message);
+      }
+    }
+
+    return res.json(finalResult);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+};
