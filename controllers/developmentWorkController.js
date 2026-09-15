@@ -24,6 +24,19 @@ async function translateDevelopmentWorkItem(item, targetLang) {
 }
 
 // GET ALL NEWS
+function getFirstMedia(mediaStr) {
+  if (!mediaStr || typeof mediaStr !== 'string') return mediaStr;
+  const match = mediaStr.match(/^(data:[^;]+;base64,[^,]+)/i);
+  if (match) return match[1];
+  if (mediaStr.startsWith('[')) {
+    try {
+      const arr = JSON.parse(mediaStr);
+      if (Array.isArray(arr) && arr.length > 0) return arr[0];
+    } catch (e) {}
+  }
+  return mediaStr.split(',')[0];
+}
+
 exports.getAllDevelopmentWork = async (req, res) => {
   const { page, limit, search, category, startDate, endDate, place } = req.query;
 
@@ -55,12 +68,15 @@ exports.getAllDevelopmentWork = async (req, res) => {
   }
 
   try {
+    let result = [];
+    let total = 0;
+    
     if (page && limit) {
       const parsedPage = parseInt(page);
       const parsedLimit = parseInt(limit);
       const offset = (parsedPage - 1) * parsedLimit;
 
-      const [total, result] = await Promise.all([
+      const [totalCount, queryResult] = await Promise.all([
         prisma.development_work.count({ where }),
         prisma.development_work.findMany({
           where,
@@ -69,19 +85,38 @@ exports.getAllDevelopmentWork = async (req, res) => {
           take: parsedLimit,
         }),
       ]);
+      total = totalCount;
+      result = queryResult;
+    } else {
+      result = await prisma.development_work.findMany({
+        where,
+        orderBy: [{ news_date: 'desc' }, { id: 'desc' }],
+        take: 20,
+      });
+    }
 
-      let finalResult = result;
-      const targetLang = getTargetLanguage(req);
-      if (targetLang) {
-        try {
-          finalResult = await Promise.all(
-            result.map((item) => translateDevelopmentWorkItem(item, targetLang))
-          );
-        } catch (transErr) {
-          console.error("Error in parallel translation:", transErr.message);
-        }
+    // Process result to only include the first media item
+    result = result.map(item => ({
+      ...item,
+      images: getFirstMedia(item.images),
+      videos: getFirstMedia(item.videos)
+    }));
+
+    let finalResult = result;
+    const targetLang = getTargetLanguage(req);
+    if (targetLang) {
+      try {
+        finalResult = await Promise.all(
+          result.map((item) => translateDevelopmentWorkItem(item, targetLang))
+        );
+      } catch (transErr) {
+        console.error("Error in parallel translation:", transErr.message);
       }
+    }
 
+    if (page && limit) {
+      const parsedPage = parseInt(page);
+      const parsedLimit = parseInt(limit);
       return res.json({
         data: finalResult,
         total,
@@ -90,24 +125,6 @@ exports.getAllDevelopmentWork = async (req, res) => {
         totalPages: Math.ceil(total / parsedLimit)
       });
     } else {
-      const result = await prisma.development_work.findMany({
-        where,
-        orderBy: [{ news_date: 'desc' }, { id: 'desc' }],
-        take: 20,
-      });
-
-      let finalResult = result;
-      const targetLang = getTargetLanguage(req);
-      if (targetLang) {
-        try {
-          finalResult = await Promise.all(
-            result.map((item) => translateDevelopmentWorkItem(item, targetLang))
-          );
-        } catch (transErr) {
-          console.error("Error in parallel translation:", transErr.message);
-        }
-      }
-
       return res.json(finalResult);
     }
   } catch (err) {
