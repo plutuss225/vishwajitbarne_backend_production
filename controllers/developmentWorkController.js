@@ -114,7 +114,8 @@ exports.getAllDevelopmentWork = async (req, res) => {
         SELECT id,
                SUBSTRING_INDEX(image, ',data:', 1) as image,
                SUBSTRING_INDEX(images, ',data:', 1) as images,
-               CASE WHEN (video IS NOT NULL AND LENGTH(video) > 10) OR (videos IS NOT NULL AND LENGTH(videos) > 10) THEN 1 ELSE 0 END as has_video
+               CASE WHEN (video IS NOT NULL AND LENGTH(video) > 10) OR (videos IS NOT NULL AND LENGTH(videos) > 10) THEN 1 ELSE 0 END as has_video,
+               CASE WHEN videos IS NOT NULL AND (videos LIKE '%youtube.com%' OR videos LIKE '%youtu.be%') THEN videos ELSE NULL END as youtube_url
         FROM development_work
         WHERE id IN (${ids.join(',')})
       `);
@@ -127,7 +128,10 @@ exports.getAllDevelopmentWork = async (req, res) => {
       result = result.map(item => {
         const m = mediaMap[item.id];
         let videoUrl = null;
-        if (m && m.has_video) {
+        if (m && m.youtube_url) {
+          // Return YouTube URL as-is so frontend can embed it
+          videoUrl = m.youtube_url.split(',')[0].trim();
+        } else if (m && m.has_video) {
           videoUrl = 'api/development_work/media/' + item.id + '.mp4';
         }
         return {
@@ -170,16 +174,25 @@ exports.getDevelopmentWorkById = async (req, res) => {
     if (!result) return res.json([]);
 
     if (req.query.lite === 'true') {
+      // Strip heavy binary video fields but preserve YouTube URLs
       if (result.video && result.video.length > 10) {
-        result.video = null;
-        if (!result.videos) {
-          result.videos = "api/development_work/media/" + result.id + ".mp4";
+        const videoStr = result.video.toString ? result.video.toString('utf8') : String(result.video);
+        if (videoStr.includes('youtube.com') || videoStr.includes('youtu.be')) {
+          result.video = videoStr;
+        } else {
+          result.video = null;
+          if (!result.videos) {
+            result.videos = 'api/development_work/media/' + result.id + '.mp4';
+          }
         }
       }
-      if (result.videos && result.videos.length > 10) {
-         if (result.videos.toString('utf8').startsWith('data:video')) {
-            result.videos = "api/development_work/media/" + result.id + ".mp4";
-         }
+      if (result.videos) {
+        const vidStr = result.videos.toString ? result.videos.toString('utf8') : String(result.videos);
+        if (vidStr.includes('youtube.com') || vidStr.includes('youtu.be')) {
+          result.videos = vidStr; // Keep YouTube URLs as-is
+        } else if (vidStr.length > 10 && !vidStr.startsWith('api/')) {
+          result.videos = 'api/development_work/media/' + result.id + '.mp4';
+        }
       }
     }
 
