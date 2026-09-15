@@ -18,10 +18,23 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes("*") || allowedOrigins.includes(origin) || allowedOrigins.length === 0) {
+    if (!origin || allowedOrigins.includes("*") || allowedOrigins.length === 0) {
+      return callback(null, true);
+    }
+    
+    // Clean up origin and allowed origins to prevent mismatch due to trailing slashes or whitespace
+    const cleanOrigin = origin.trim().replace(/\/$/, '');
+    const isAllowed = allowedOrigins.some(o => {
+      const cleanAllowed = o.trim().replace(/\/$/, '');
+      return cleanOrigin === cleanAllowed || cleanOrigin.includes('vishwajitbarne.com') || cleanOrigin.includes('localhost');
+    });
+
+    if (isAllowed) {
       callback(null, true);
     } else {
-      callback(new Error("Not allowed by CORS"));
+      console.log(`CORS blocked origin: ${origin}`);
+      // Returning false instead of an Error prevents Express from returning a 500 HTML error page.
+      callback(null, false);
     }
   },
   credentials: true
