@@ -169,6 +169,20 @@ exports.getDevelopmentWorkById = async (req, res) => {
 
     if (!result) return res.json([]);
 
+    if (req.query.lite === 'true') {
+      if (result.video && result.video.length > 10) {
+        result.video = null;
+        if (!result.videos) {
+          result.videos = "api/development_work/media/" + result.id + ".mp4";
+        }
+      }
+      if (result.videos && result.videos.length > 10) {
+         if (result.videos.toString('utf8').startsWith('data:video')) {
+            result.videos = "api/development_work/media/" + result.id + ".mp4";
+         }
+      }
+    }
+
     const targetLang = getTargetLanguage(req);
     if (targetLang) {
       try {
