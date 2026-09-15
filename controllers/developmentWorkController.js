@@ -133,16 +133,6 @@ exports.getAllDevelopmentWork = async (req, res) => {
     }
 
     let finalResult = result;
-    const targetLang = getTargetLanguage(req);
-    if (targetLang) {
-      try {
-        finalResult = await Promise.all(
-          result.map((item) => translateDevelopmentWorkItem(item, targetLang))
-        );
-      } catch (transErr) {
-        console.error("Error in parallel translation:", transErr.message);
-      }
-    }
 
     if (page && limit) {
       const parsedPage = parseInt(page);

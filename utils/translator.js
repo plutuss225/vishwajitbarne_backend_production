@@ -50,15 +50,7 @@ async function translateText(text, targetLang) {
 }
 
 function getTargetLanguage(req) {
-  if (req.query) {
-    if (req.query.lang) return req.query.lang;
-    if (req.query.language) return req.query.language;
-  }
-  const acceptLang = req.headers['accept-language'];
-  if (acceptLang) {
-    const match = acceptLang.split(",")[0].split(";")[0].trim();
-    if (match) return match;
-  }
+  // Disabled auto-translation to return data in saved language
   return null;
 }
 
