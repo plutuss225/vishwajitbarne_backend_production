@@ -96,6 +96,7 @@ exports.getAllNews = async (req, res) => {
       const result = await prisma.news.findMany({
         where,
         orderBy: [{ news_date: 'desc' }, { id: 'desc' }],
+        take: 20,
       });
 
       let finalResult = result;

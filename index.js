@@ -11,6 +11,14 @@ const path = require("path");
 const app = express();
 const PORT = process.env.PORT;
 
+// Prevent Out-Of-Memory errors during JSON serialization of image/video Buffers
+// By default, JSON.stringify(Buffer) creates a massive array of integers: {"type":"Buffer","data":[...]}
+// A 5MB image becomes a 150MB+ string during res.json(), crashing Node.js with OOM.
+// Since all our media buffers are utf-8 Base64 strings, we can serialize them directly as strings!
+Buffer.prototype.toJSON = function() {
+  return this.toString('utf-8');
+};
+
 // Enable CORS
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim())

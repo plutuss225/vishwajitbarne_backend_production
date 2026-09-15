@@ -67,6 +67,16 @@ exports.getAllDevelopmentWork = async (req, res) => {
     }
   }
 
+  const selectFields = {
+    id: true,
+    title: true,
+    category: true,
+    description: true,
+    news_date: true,
+    place: true,
+    // Omit image, video, images, videos to save RAM
+  };
+
   try {
     let result = [];
     let total = 0;
@@ -83,6 +93,7 @@ exports.getAllDevelopmentWork = async (req, res) => {
           orderBy: [{ news_date: 'desc' }, { id: 'desc' }],
           skip: offset,
           take: parsedLimit,
+          select: selectFields
         }),
       ]);
       total = totalCount;
@@ -92,15 +103,34 @@ exports.getAllDevelopmentWork = async (req, res) => {
         where,
         orderBy: [{ news_date: 'desc' }, { id: 'desc' }],
         take: 20,
+        select: selectFields
       });
     }
 
-    // Process result to only include the first media item
-    result = result.map(item => ({
-      ...item,
-      images: getFirstMedia(item.images),
-      videos: getFirstMedia(item.videos)
-    }));
+    // Fetch only the first thumbnail for each record to prevent OOM (Out Of Memory)
+    if (result.length > 0) {
+      const ids = result.map(r => r.id);
+      const mediaThumbnails = await prisma.$queryRawUnsafe(`
+        SELECT id, image, video,
+               SUBSTRING_INDEX(images, ',data:', 1) as images,
+               SUBSTRING_INDEX(videos, ',data:', 1) as videos
+        FROM development_work
+        WHERE id IN (${ids.join(',')})
+      `);
+
+      const mediaMap = {};
+      for (const m of mediaThumbnails) {
+        mediaMap[m.id] = m;
+      }
+
+      result = result.map(item => ({
+        ...item,
+        image: mediaMap[item.id]?.image,
+        video: mediaMap[item.id]?.video,
+        images: getFirstMedia(mediaMap[item.id]?.images),
+        videos: getFirstMedia(mediaMap[item.id]?.videos)
+      }));
+    }
 
     let finalResult = result;
     const targetLang = getTargetLanguage(req);
