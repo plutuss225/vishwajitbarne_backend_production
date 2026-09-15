@@ -111,9 +111,10 @@ exports.getAllDevelopmentWork = async (req, res) => {
     if (result.length > 0) {
       const ids = result.map(r => r.id);
       const mediaThumbnails = await prisma.$queryRawUnsafe(`
-        SELECT id, image, video,
+        SELECT id,
+               SUBSTRING_INDEX(image, ',data:', 1) as image,
                SUBSTRING_INDEX(images, ',data:', 1) as images,
-               SUBSTRING_INDEX(videos, ',data:', 1) as videos
+               CASE WHEN (video IS NOT NULL AND LENGTH(video) > 10) OR (videos IS NOT NULL AND LENGTH(videos) > 10) THEN 1 ELSE 0 END as has_video
         FROM development_work
         WHERE id IN (${ids.join(',')})
       `);
@@ -123,13 +124,20 @@ exports.getAllDevelopmentWork = async (req, res) => {
         mediaMap[m.id] = m;
       }
 
-      result = result.map(item => ({
-        ...item,
-        image: mediaMap[item.id]?.image,
-        video: mediaMap[item.id]?.video,
-        images: getFirstMedia(mediaMap[item.id]?.images),
-        videos: getFirstMedia(mediaMap[item.id]?.videos)
-      }));
+      result = result.map(item => {
+        const m = mediaMap[item.id];
+        let videoUrl = null;
+        if (m && m.has_video) {
+          videoUrl = 'api/development_work/media/' + item.id + '.mp4';
+        }
+        return {
+          ...item,
+          image: getFirstMedia(m?.image),
+          video: null,
+          images: getFirstMedia(m?.images),
+          videos: videoUrl
+        };
+      });
     }
 
     let finalResult = result;
@@ -784,5 +792,38 @@ exports.getLatestDevelopmentWorkByPlaces = async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: "Failed to fetch latest development works by place" });
+  }
+};
+
+// STREAM VIDEO ENDPOINT
+exports.streamDevelopmentWorkVideo = async (req, res) => {
+  try {
+    const work = await prisma.development_work.findUnique({
+      where: { id: parseInt(req.params.id) },
+      select: { video: true, videos: true }
+    });
+    
+    if (!work) return res.status(404).send('Not found');
+    
+    let videoStr = null;
+    if (work.video && work.video.length > 10) {
+      videoStr = work.video.toString('utf-8');
+    } else if (work.videos && work.videos.length > 10) {
+      const v = work.videos.toString('utf-8');
+      videoStr = v.startsWith('data:') ? v : v.split(',')[0];
+    }
+    
+    if (!videoStr) return res.status(404).send('No video');
+    
+    const base64Data = videoStr.split(',')[1] || videoStr;
+    const buffer = Buffer.from(base64Data, 'base64');
+    
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.send(buffer);
+  } catch (e) {
+    console.error("Error streaming video:", e);
+    res.status(500).send('Error');
   }
 };

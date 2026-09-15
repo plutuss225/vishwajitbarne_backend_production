@@ -8,7 +8,8 @@ const {
   deleteDevelopmentWork,
   getCategories,
   getDevelopmentWorkByCategory,
-  getTopDevelopmentWorkByCategory
+  getTopDevelopmentWorkByCategory,
+  streamDevelopmentWorkVideo
 } = require("../controllers/developmentWorkController");
 const authMiddleware = require("../middleware/authMiddleware");
 
@@ -23,6 +24,9 @@ router.get("/by-category", getDevelopmentWorkByCategory);
 
 // GET TOP 3 NEWS BY CATEGORY (max 3, optional ?category=Sports)
 router.get("/by-category/top", getTopDevelopmentWorkByCategory);
+
+// STREAM VIDEO ENDPOINT
+router.get("/media/:id", streamDevelopmentWorkVideo);
 
 // GET LATEST BY PLACES
 router.get("/latest-by-places", require("../controllers/developmentWorkController").getLatestDevelopmentWorkByPlaces);
