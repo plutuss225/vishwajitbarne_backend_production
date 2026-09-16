@@ -171,7 +171,7 @@ exports.getAllElections = async (req, res) => {
   }
 };
 
-// GET BY ID (Full detail with all images and videos)
+// GET BY ID (Optimized full detail with video stream URLs & images)
 exports.getElectionById = async (req, res) => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) {
@@ -188,17 +188,24 @@ exports.getElectionById = async (req, res) => {
     }
 
     const item = rawRows[0];
+    
+    // Process video URLs (stream URL for binary mp4, keep raw for YouTube)
+    let processedVideos = null;
+    if (item.videos && item.videos.length > 10) {
+      const vidStr = item.videos.toString('utf-8');
+      if (vidStr.includes('youtube.com') || vidStr.includes('youtu.be')) {
+        processedVideos = vidStr;
+      } else {
+        processedVideos = 'api/elections/media/' + item.id + '.mp4';
+      }
+    }
+
     let mediaUrl = item.mediaUrl ? parsePrismaBuffer(item.mediaUrl) : null;
     if (!mediaUrl) {
       if (item.images) {
         mediaUrl = item.images.split(',')[0];
-      } else if (item.videos) {
-        const v = item.videos.toString('utf-8');
-        if (v.includes('youtube.com') || v.includes('youtu.be')) {
-          mediaUrl = v.split(',')[0].trim();
-        } else {
-          mediaUrl = 'api/elections/media/' + item.id + '.mp4';
-        }
+      } else if (processedVideos) {
+        mediaUrl = processedVideos.split(',')[0].trim();
       }
     }
 
@@ -207,7 +214,7 @@ exports.getElectionById = async (req, res) => {
       _id: item.id,
       mediaUrl,
       images: item.images || null,
-      videos: item.videos || null,
+      videos: processedVideos,
     };
 
     res.json({ data: result });
