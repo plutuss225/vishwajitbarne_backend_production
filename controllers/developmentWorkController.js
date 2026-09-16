@@ -504,22 +504,25 @@ exports.getLatestDevelopmentWorkByPlaces = async (req, res) => {
     };
 
     try {
-      let results = [];
-      for (const place of places) {
+      const queries = places.map(async (place) => {
         const work = await prisma.development_work.findFirst({
           where: { place: { contains: place.db } },
           orderBy: [{ news_date: 'desc' }, { id: 'desc' }],
           select: selectFields
         });
-        if (work) results.push({ ...work, searchedPlace: place.marathi });
-      }
+        if (work) return { ...work, searchedPlace: place.marathi };
+        return null;
+      });
+      let results = (await Promise.all(queries)).filter(w => w !== null);
 
       if (results.length > 0) {
         const ids = results.map(r => r.id);
         const mediaThumbnails = await prisma.$queryRawUnsafe(`
-          SELECT id, image, video,
+          SELECT id,
+                 SUBSTRING_INDEX(image, ',data:', 1) as image,
                  SUBSTRING_INDEX(images, ',data:', 1) as images,
-                 SUBSTRING_INDEX(videos, ',data:', 1) as videos
+                 CASE WHEN (video IS NOT NULL AND LENGTH(video) > 10) OR (videos IS NOT NULL AND LENGTH(videos) > 10) THEN 1 ELSE 0 END as has_video,
+                 CASE WHEN videos IS NOT NULL AND (videos LIKE '%youtube.com%' OR videos LIKE '%youtu.be%') THEN videos ELSE NULL END as youtube_url
           FROM development_work
           WHERE id IN (${ids.join(',')})
         `);
@@ -529,13 +532,22 @@ exports.getLatestDevelopmentWorkByPlaces = async (req, res) => {
           mediaMap[m.id] = m;
         }
   
-        results = results.map(item => ({
-          ...item,
-          image: mediaMap[item.id]?.image,
-          video: mediaMap[item.id]?.video,
-          images: getFirstMedia(mediaMap[item.id]?.images),
-          videos: getFirstMedia(mediaMap[item.id]?.videos)
-        }));
+        results = results.map(item => {
+          const m = mediaMap[item.id];
+          let videoUrl = null;
+          if (m && m.youtube_url) {
+            videoUrl = m.youtube_url.split(',')[0].trim();
+          } else if (m && m.has_video) {
+            videoUrl = 'api/development_work/media/' + item.id + '.mp4';
+          }
+          return {
+            ...item,
+            image: getFirstMedia(m?.image),
+            video: null,
+            images: getFirstMedia(m?.images),
+            videos: videoUrl
+          };
+        });
       }
 
       const targetLang = getTargetLanguage(req);
