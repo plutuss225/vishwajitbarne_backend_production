@@ -51,10 +51,7 @@ exports.getAllDevelopmentWork = async (req, res) => {
   }
 
   if (search) {
-    where.OR = [
-      { title: { contains: search } },
-      { description: { contains: search } },
-    ];
+    where.OR = [{ title: { contains: search } }, { description: { contains: search } }, { category: { contains: search } }, { place: { contains: search } }];
   }
 
   if (startDate || endDate) {
@@ -351,10 +348,7 @@ exports.getDevelopmentWorkByCategory = async (req, res) => {
   }
 
   if (search) {
-    where.OR = [
-      { title: { contains: search } },
-      { description: { contains: search } },
-    ];
+    where.OR = [{ title: { contains: search } }, { description: { contains: search } }, { category: { contains: search } }, { place: { contains: search } }];
   }
 
   try {
@@ -707,10 +701,7 @@ exports.getDevelopmentWorkByCategory = async (req, res) => {
   }
 
   if (search) {
-    where.OR = [
-      { title: { contains: search } },
-      { description: { contains: search } },
-    ];
+    where.OR = [{ title: { contains: search } }, { description: { contains: search } }, { category: { contains: search } }, { place: { contains: search } }];
   }
 
   try {
