@@ -45,13 +45,7 @@ async function translateElectionItem(item, targetLang) {
 exports.getAllElections = async (req, res) => {
   let { page, limit, search, category, startDate, endDate, year } = req.query;
 
-  if (search) {
-    try {
-      search = await translateText(search, "mr");
-    } catch (e) {
-      console.error("Error translating search term:", e.message);
-    }
-  }
+  // search used as-is (pre-translation removed to reduce latency)
 
   const where = {};
 
@@ -330,3 +324,4 @@ exports.getCategoriesByYear = async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 };
+
