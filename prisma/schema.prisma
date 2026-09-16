@@ -97,6 +97,8 @@ model elections {
   description  String?   @db.Text
   mediaType    String?   @db.VarChar(50)
   mediaUrl     Bytes?    
+  images       String?   @db.LongText
+  videos       String?   @db.LongText
   uploadDate   DateTime? @db.Date
   isActive     Boolean   @default(true)
   created_at   DateTime? @default(now()) @db.Timestamp(0)

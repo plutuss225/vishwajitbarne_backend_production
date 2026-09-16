@@ -1,4 +1,4 @@
-const prisma = require("../config/prisma");
+﻿const prisma = require("../config/prisma");
 const { translateText, getTargetLanguage } = require("../utils/translator");
 
 // Helper to parse Prisma Bytes object back to a string URL
@@ -44,8 +44,6 @@ async function translateElectionItem(item, targetLang) {
 // GET ALL ELECTIONS
 exports.getAllElections = async (req, res) => {
   let { page, limit, search, category, startDate, endDate, year } = req.query;
-
-  // search used as-is (pre-translation removed to reduce latency)
 
   const where = {};
 
@@ -180,9 +178,9 @@ exports.getElectionById = async (req, res) => {
   }
 };
 
-// INSERT ELECTION
+// INSERT ELECTION (now uses separate images and videos fields like development_work)
 exports.createElection = async (req, res) => {
-  const { title, electionYear, category, description, mediaType, mediaUrl, uploadDate, isActive } = req.body;
+  const { title, electionYear, category, description, mediaType, mediaUrl, images, videos, uploadDate, isActive } = req.body;
 
   try {
     const result = await prisma.elections.create({
@@ -191,8 +189,10 @@ exports.createElection = async (req, res) => {
         electionYear: parseInt(electionYear),
         category: category || 'Elections',
         description,
-        mediaType,
-        mediaUrl: Array.isArray(mediaUrl) ? Buffer.from(JSON.stringify(mediaUrl), 'utf-8') : (typeof mediaUrl === 'string' ? Buffer.from(mediaUrl, 'utf-8') : mediaUrl),
+        mediaType: mediaType || 'image',
+        mediaUrl: mediaUrl ? (Array.isArray(mediaUrl) ? Buffer.from(JSON.stringify(mediaUrl), 'utf-8') : (typeof mediaUrl === 'string' ? Buffer.from(mediaUrl, 'utf-8') : mediaUrl)) : null,
+        images: typeof images === 'object' ? JSON.stringify(images) : (images || null),
+        videos: typeof videos === 'object' ? JSON.stringify(videos) : (videos || null),
         uploadDate: uploadDate ? new Date(uploadDate) : null,
         isActive: isActive !== undefined ? isActive : true,
       },
@@ -204,9 +204,9 @@ exports.createElection = async (req, res) => {
   }
 };
 
-// UPDATE ELECTION
+// UPDATE ELECTION (now uses separate images and videos fields like development_work)
 exports.updateElection = async (req, res) => {
-  const { title, electionYear, category, description, mediaType, mediaUrl, uploadDate, isActive } = req.body;
+  const { title, electionYear, category, description, mediaType, mediaUrl, images, videos, uploadDate, isActive } = req.body;
 
   try {
     const result = await prisma.elections.update({
@@ -216,8 +216,10 @@ exports.updateElection = async (req, res) => {
         electionYear: electionYear ? parseInt(electionYear) : undefined,
         category: category || 'Elections',
         description,
-        mediaType,
-        mediaUrl: Array.isArray(mediaUrl) ? Buffer.from(JSON.stringify(mediaUrl), 'utf-8') : (typeof mediaUrl === 'string' ? Buffer.from(mediaUrl, 'utf-8') : mediaUrl),
+        mediaType: mediaType || 'image',
+        mediaUrl: mediaUrl ? (Array.isArray(mediaUrl) ? Buffer.from(JSON.stringify(mediaUrl), 'utf-8') : (typeof mediaUrl === 'string' ? Buffer.from(mediaUrl, 'utf-8') : mediaUrl)) : null,
+        images: typeof images === 'object' ? JSON.stringify(images) : (images || null),
+        videos: typeof videos === 'object' ? JSON.stringify(videos) : (videos || null),
         uploadDate: uploadDate ? new Date(uploadDate) : null,
         isActive: isActive !== undefined ? isActive : true,
       },
@@ -324,4 +326,3 @@ exports.getCategoriesByYear = async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 };
-
