@@ -6,14 +6,18 @@ const {
   updateElection, 
   deleteElection, 
   getCategories,
-  getCategoriesByYear
+  getCategoriesByYear,
+  getElectionYears,
+  streamElectionVideo
 } = require("../controllers/electionsController");
 
 const router = express.Router();
 
 router.get("/", getAllElections);
 router.get("/categories", getCategories);
+router.get("/years", getElectionYears);
 router.get("/years/:year/categories", getCategoriesByYear);
+router.get("/media/:id", streamElectionVideo);
 router.get("/:id", getElectionById);
 router.post("/", createElection);
 router.put("/:id", updateElection);

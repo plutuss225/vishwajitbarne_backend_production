@@ -1,4 +1,4 @@
-﻿const prisma = require("../config/prisma");
+const prisma = require("../config/prisma");
 const { translateText, getTargetLanguage } = require("../utils/translator");
 
 // Helper to parse Prisma Bytes object back to a string URL
@@ -13,45 +13,30 @@ function parsePrismaBuffer(bufferObj) {
   }
 }
 
-async function translateElectionItem(item, targetLang) {
-  if (!targetLang) return item;
-  try {
-    const [title, category, description] = await Promise.all([
-      translateText(item.title, targetLang),
-      translateText(item.category, targetLang),
-      item.description ? translateText(item.description, targetLang) : null,
-    ]);
-
-    let finalMediaUrl = item.mediaUrl;
-    if (finalMediaUrl && (Buffer.isBuffer(finalMediaUrl) || finalMediaUrl instanceof Uint8Array || typeof finalMediaUrl === 'object')) {
-      finalMediaUrl = parsePrismaBuffer(finalMediaUrl);
-    }
-
-    return {
-      ...item,
-      _id: item.id,
-      title,
-      category,
-      description,
-      mediaUrl: finalMediaUrl
-    };
-  } catch (err) {
-    console.error("Error in translateElectionItem:", err.message);
-    return item;
+function getFirstMedia(mediaStr) {
+  if (!mediaStr || typeof mediaStr !== 'string') return mediaStr;
+  const match = mediaStr.match(/^(data:[^;]+;base64,[^,]+)/i);
+  if (match) return match[1];
+  if (mediaStr.startsWith('[')) {
+    try {
+      const arr = JSON.parse(mediaStr);
+      if (Array.isArray(arr) && arr.length > 0) return arr[0];
+    } catch (e) {}
   }
+  return mediaStr.split(',')[0]?.trim() || null;
 }
 
-// GET ALL ELECTIONS
+// GET ALL ELECTIONS (Optimized fast listing with lightweight thumbnails)
 exports.getAllElections = async (req, res) => {
   let { page, limit, search, category, startDate, endDate, year } = req.query;
 
   const where = {};
 
-  if (category) {
+  if (category && category !== 'all') {
     where.category = category;
   }
 
-  if (year) {
+  if (year && year !== 'all') {
     where.electionYear = parseInt(year);
   }
 
@@ -73,112 +58,222 @@ exports.getAllElections = async (req, res) => {
     }
   }
 
+  const selectFields = {
+    id: true,
+    title: true,
+    electionYear: true,
+    category: true,
+    description: true,
+    mediaType: true,
+    uploadDate: true,
+    isActive: true,
+    created_at: true,
+  };
+
   try {
+    let result = [];
+    let total = 0;
+
     if (page && limit) {
       const parsedPage = parseInt(page);
       const parsedLimit = parseInt(limit);
       const offset = (parsedPage - 1) * parsedLimit;
 
-      const [total, result] = await Promise.all([
+      const [totalCount, queryResult] = await Promise.all([
         prisma.elections.count({ where }),
         prisma.elections.findMany({
           where,
           orderBy: { id: 'desc' },
           skip: offset,
           take: parsedLimit,
+          select: selectFields,
         }),
       ]);
+      total = totalCount;
+      result = queryResult;
+    } else {
+      result = await prisma.elections.findMany({
+        where,
+        orderBy: { id: 'desc' },
+        select: selectFields,
+      });
+      total = result.length;
+    }
 
-      let finalResult = result;
-      const targetLang = getTargetLanguage(req);
-      if (targetLang) {
-        try {
-          finalResult = await Promise.all(
-            result.map((item) => translateElectionItem(item, targetLang))
-          );
-        } catch (transErr) {
-          console.error("Error in parallel translation:", transErr.message);
+    if (result.length > 0) {
+      const ids = result.map((r) => r.id);
+      const mediaThumbnails = await prisma.$queryRawUnsafe(`
+        SELECT id,
+               SUBSTRING_INDEX(images, ',data:', 1) as first_image,
+               CASE 
+                 WHEN videos IS NOT NULL AND (videos LIKE '%youtube.com%' OR videos LIKE '%youtu.be%') THEN videos
+                 ELSE NULL 
+               END as youtube_url,
+               CASE 
+                 WHEN (videos IS NOT NULL AND LENGTH(videos) > 10) OR (mediaType = 'video') THEN 1 
+                 ELSE 0 
+               END as has_video,
+               (CASE WHEN (images LIKE '%,%' OR (images IS NOT NULL AND videos IS NOT NULL)) THEN 1 ELSE 0 END) as has_multiple
+        FROM elections 
+        WHERE id IN (${ids.join(',')})
+      `);
+
+      const mediaMap = new Map();
+      mediaThumbnails.forEach((r) => {
+        let mediaUrl = null;
+        if (r.first_image) {
+          mediaUrl = r.first_image.split(',')[0].startsWith('data:') ? r.first_image : r.first_image.split(',')[0];
+        } else if (r.youtube_url) {
+          mediaUrl = r.youtube_url.split(',')[0].trim();
+        } else if (r.has_video) {
+          mediaUrl = 'api/elections/media/' + r.id + '.mp4';
         }
-      } else {
-        finalResult = result.map(item => {
-          if (item.mediaUrl && (Buffer.isBuffer(item.mediaUrl) || item.mediaUrl instanceof Uint8Array || typeof item.mediaUrl === 'object')) {
-            item.mediaUrl = parsePrismaBuffer(item.mediaUrl);
-          }
-          return item;
-        });
-      }
 
+        mediaMap.set(r.id, {
+          mediaUrl,
+          images: r.first_image ? getFirstMedia(r.first_image) : null,
+          videos: r.youtube_url ? r.youtube_url : (r.has_video ? 'api/elections/media/' + r.id + '.mp4' : null),
+          hasMultiple: !!r.has_multiple,
+          mediaType: (r.has_video || r.youtube_url) && !r.first_image ? 'video' : 'image',
+        });
+      });
+
+      result = result.map((item) => {
+        const m = mediaMap.get(item.id);
+        return {
+          ...item,
+          _id: item.id,
+          mediaUrl: m?.mediaUrl || null,
+          images: m?.images || null,
+          videos: m?.videos || null,
+          hasMultiple: m?.hasMultiple || false,
+          mediaType: m?.mediaType || item.mediaType || 'image',
+        };
+      });
+    }
+
+    if (page && limit) {
+      const parsedPage = parseInt(page);
+      const parsedLimit = parseInt(limit);
       return res.json({
-        data: finalResult,
+        data: result,
         total,
         page: parsedPage,
         limit: parsedLimit,
-        totalPages: Math.ceil(total / parsedLimit)
+        totalPages: Math.ceil(total / parsedLimit),
       });
-    } else {
-      const result = await prisma.elections.findMany({
-        where,
-        orderBy: { id: 'desc' },
-      });
-
-      let finalResult = result;
-      const targetLang = getTargetLanguage(req);
-      if (targetLang) {
-        try {
-          finalResult = await Promise.all(
-            result.map((item) => translateElectionItem(item, targetLang))
-          );
-        } catch (transErr) {
-          console.error("Error in parallel translation:", transErr.message);
-        }
-      } else {
-        finalResult = result.map(item => {
-          if (item.mediaUrl && (Buffer.isBuffer(item.mediaUrl) || item.mediaUrl instanceof Uint8Array || typeof item.mediaUrl === 'object')) {
-            item.mediaUrl = parsePrismaBuffer(item.mediaUrl);
-          }
-          return item;
-        });
-      }
-
-      return res.json({ data: finalResult });
     }
+
+    return res.json({ data: result });
   } catch (err) {
+    console.error("Error in getAllElections:", err);
     return res.status(500).json({ error: err.message });
   }
 };
 
-// GET BY ID
+// GET BY ID (Full detail with all images and videos)
 exports.getElectionById = async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) {
+    return res.status(400).json({ error: "Invalid election ID" });
+  }
+
   try {
-    const result = await prisma.elections.findUnique({
-      where: { id: parseInt(req.params.id) },
-    });
+    const rawRows = await prisma.$queryRawUnsafe(
+      `SELECT id, title, electionYear, category, description, mediaType, mediaUrl, images, videos, uploadDate, isActive, created_at FROM elections WHERE id = ${id}`
+    );
 
-    if (!result) return res.json({ data: null });
+    if (!rawRows || rawRows.length === 0) {
+      return res.json({ data: null });
+    }
 
-    const targetLang = getTargetLanguage(req);
-    if (targetLang) {
-      try {
-        const translatedItem = await translateElectionItem(result, targetLang);
-        return res.json({ data: translatedItem });
-      } catch (transErr) {
-        console.error("Error in single translation:", transErr.message);
+    const item = rawRows[0];
+    let mediaUrl = item.mediaUrl ? parsePrismaBuffer(item.mediaUrl) : null;
+    if (!mediaUrl) {
+      if (item.images) {
+        mediaUrl = item.images.split(',')[0];
+      } else if (item.videos) {
+        const v = item.videos.toString('utf-8');
+        if (v.includes('youtube.com') || v.includes('youtu.be')) {
+          mediaUrl = v.split(',')[0].trim();
+        } else {
+          mediaUrl = 'api/elections/media/' + item.id + '.mp4';
+        }
       }
     }
 
-    if (result.mediaUrl && (Buffer.isBuffer(result.mediaUrl) || result.mediaUrl instanceof Uint8Array || typeof result.mediaUrl === 'object')) {
-      result.mediaUrl = parsePrismaBuffer(result.mediaUrl);
-    }
-    
-    result._id = result.id;
+    const result = {
+      ...item,
+      _id: item.id,
+      mediaUrl,
+      images: item.images || null,
+      videos: item.videos || null,
+    };
 
-    res.json({ data: result }); 
+    res.json({ data: result });
   } catch (err) {
-    return res.json(err);
+    console.error("Error in getElectionById:", err);
+    return res.status(500).json({ error: err.message });
   }
 };
 
-// INSERT ELECTION (now uses separate images and videos fields like development_work)
+// STREAM VIDEO ENDPOINT
+exports.streamElectionVideo = async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) {
+    return res.status(400).send("Invalid ID");
+  }
+
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, mediaUrl, videos FROM elections WHERE id = ${id}`
+    );
+    const work = rows && rows[0];
+    if (!work) return res.status(404).send("Not found");
+
+    let videoStr = null;
+    if (work.videos && work.videos.length > 10) {
+      const v = work.videos.toString("utf-8");
+      videoStr = v.startsWith("data:") ? v : v.split(",")[0];
+    } else if (work.mediaUrl && work.mediaUrl.length > 10) {
+      const v = work.mediaUrl.toString("utf-8");
+      videoStr = v.startsWith("data:") ? v : v.split(",")[0];
+    }
+
+    if (!videoStr) return res.status(404).send("No video found");
+
+    const base64Data = videoStr.split(",")[1] || videoStr;
+    const buffer = Buffer.from(base64Data, "base64");
+
+    res.setHeader("Content-Type", "video/mp4");
+    res.setHeader("Content-Length", buffer.length);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    return res.send(buffer);
+  } catch (err) {
+    console.error("Error streaming election video:", err);
+    res.status(500).send("Error");
+  }
+};
+
+// GET DISTINCT ELECTION YEARS
+exports.getElectionYears = async (req, res) => {
+  try {
+    const years = await prisma.elections.findMany({
+      select: { electionYear: true },
+      distinct: ['electionYear'],
+      where: { isActive: true },
+      orderBy: { electionYear: 'desc' },
+    });
+
+    const result = years.map((y) => y.electionYear);
+    res.json({ data: result.length > 0 ? result : [2026] });
+  } catch (err) {
+    console.error("Error fetching election years:", err);
+    res.json({ data: [2026] });
+  }
+};
+
+// INSERT ELECTION
 exports.createElection = async (req, res) => {
   const { title, electionYear, category, description, mediaType, mediaUrl, images, videos, uploadDate, isActive } = req.body;
 
@@ -191,12 +286,20 @@ exports.createElection = async (req, res) => {
         description,
         mediaType: mediaType || 'image',
         mediaUrl: mediaUrl ? (Array.isArray(mediaUrl) ? Buffer.from(JSON.stringify(mediaUrl), 'utf-8') : (typeof mediaUrl === 'string' ? Buffer.from(mediaUrl, 'utf-8') : mediaUrl)) : null,
-        images: typeof images === 'object' ? JSON.stringify(images) : (images || null),
-        videos: typeof videos === 'object' ? JSON.stringify(videos) : (videos || null),
         uploadDate: uploadDate ? new Date(uploadDate) : null,
         isActive: isActive !== undefined ? isActive : true,
       },
     });
+
+    if (images || videos) {
+      await prisma.$queryRawUnsafe(
+        `UPDATE elections SET images = ?, videos = ? WHERE id = ?`,
+        typeof images === 'object' ? JSON.stringify(images) : (images || null),
+        typeof videos === 'object' ? JSON.stringify(videos) : (videos || null),
+        result.id
+      );
+    }
+
     res.json({ message: "Election added", result });
   } catch (err) {
     console.error("Error creating election:", err);
@@ -204,13 +307,14 @@ exports.createElection = async (req, res) => {
   }
 };
 
-// UPDATE ELECTION (now uses separate images and videos fields like development_work)
+// UPDATE ELECTION
 exports.updateElection = async (req, res) => {
+  const id = parseInt(req.params.id);
   const { title, electionYear, category, description, mediaType, mediaUrl, images, videos, uploadDate, isActive } = req.body;
 
   try {
     const result = await prisma.elections.update({
-      where: { id: parseInt(req.params.id) },
+      where: { id },
       data: {
         title,
         electionYear: electionYear ? parseInt(electionYear) : undefined,
@@ -218,15 +322,24 @@ exports.updateElection = async (req, res) => {
         description,
         mediaType: mediaType || 'image',
         mediaUrl: mediaUrl ? (Array.isArray(mediaUrl) ? Buffer.from(JSON.stringify(mediaUrl), 'utf-8') : (typeof mediaUrl === 'string' ? Buffer.from(mediaUrl, 'utf-8') : mediaUrl)) : null,
-        images: typeof images === 'object' ? JSON.stringify(images) : (images || null),
-        videos: typeof videos === 'object' ? JSON.stringify(videos) : (videos || null),
         uploadDate: uploadDate ? new Date(uploadDate) : null,
         isActive: isActive !== undefined ? isActive : true,
       },
     });
+
+    if (images !== undefined || videos !== undefined) {
+      await prisma.$queryRawUnsafe(
+        `UPDATE elections SET images = ?, videos = ? WHERE id = ?`,
+        typeof images === 'object' ? JSON.stringify(images) : (images || null),
+        typeof videos === 'object' ? JSON.stringify(videos) : (videos || null),
+        id
+      );
+    }
+
     res.json({ message: "Updated", result });
   } catch (err) {
-    return res.json(err);
+    console.error("Error updating election:", err);
+    return res.status(500).json({ error: err.message });
   }
 };
 
@@ -235,20 +348,13 @@ exports.deleteElection = async (req, res) => {
   const id = parseInt(req.params.id);
 
   try {
-    const selectResult = await prisma.elections.findUnique({
-      where: { id },
-      select: { mediaUrl: true },
-    });
-
-    // Cloudinary logic removed
-
     await prisma.elections.delete({
       where: { id },
     });
 
     res.json({ message: "Deleted" });
   } catch (err) {
-    return res.status(500).json(err);
+    return res.status(500).json({ error: err.message });
   }
 };
 
@@ -264,27 +370,11 @@ exports.getCategories = async (req, res) => {
       orderBy: { category: 'asc' },
     });
 
-    const originalCategories = categories
+    const resultCategories = categories
       .map((r) => r.category)
-      .filter((c) => c && c.trim() !== '');
+      .filter((c) => c && c.trim() !== '')
+      .map((c) => ({ key: c, label: c }));
 
-    const targetLang = getTargetLanguage(req);
-    if (targetLang) {
-      try {
-        const translated = await Promise.all(
-          originalCategories.map((c) => translateText(c, targetLang))
-        );
-        const resultCategories = originalCategories.map((c, i) => ({
-          key: c,
-          label: translated[i]
-        }));
-        return res.json({ data: resultCategories });
-      } catch (transErr) {
-        console.error("Error translating categories:", transErr.message);
-      }
-    }
-
-    const resultCategories = originalCategories.map(c => ({ key: c, label: c }));
     res.json({ data: resultCategories });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -305,23 +395,11 @@ exports.getCategoriesByYear = async (req, res) => {
       orderBy: { category: 'asc' },
     });
 
-    const originalCategories = categories
+    const result = categories
       .map((r) => r.category)
       .filter((c) => c && c.trim() !== '');
 
-    const targetLang = getTargetLanguage(req);
-    if (targetLang) {
-      try {
-        const translated = await Promise.all(
-          originalCategories.map((c) => translateText(c, targetLang))
-        );
-        return res.json({ data: translated });
-      } catch (transErr) {
-        console.error("Error translating categories by year:", transErr.message);
-      }
-    }
-
-    res.json({ data: originalCategories });
+    res.json({ data: result });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
