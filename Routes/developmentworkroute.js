@@ -35,6 +35,9 @@ router.get("/latest-by-places", require("../controllers/developmentWorkControlle
 // GET LATEST 1 PER YEAR (4 most recent years)
 router.get("/latest-by-year", getLatestDevelopmentWorkByYear);
 
+// GET LATEST 1 PER MONTH (4 most recent months)
+router.get("/latest-by-month", getLatestDevelopmentWorkByYear);
+
 // GET BY ID
 router.get("/:id", getDevelopmentWorkById);
 

@@ -841,19 +841,40 @@ exports.getLatestDevelopmentWorkByYear = async (req, res) => {
   };
 
   try {
-    // Build the 4 most recent months (current month + 3 before it)
-    const now = new Date();
-    const months = [];
-    for (let i = 0; i < 4; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      months.push({ year: d.getFullYear(), month: d.getMonth() + 1 }); // month is 1-indexed
+    // Step 1: Find up to 4 most recent distinct months that have records
+    let months = [];
+    try {
+      const rawMonths = await prisma.$queryRawUnsafe(`
+        SELECT DISTINCT YEAR(news_date) as year, MONTH(news_date) as month
+        FROM development_work
+        WHERE news_date IS NOT NULL
+        ORDER BY news_date DESC
+        LIMIT 4
+      `);
+      if (rawMonths && rawMonths.length > 0) {
+        months = rawMonths.map(m => ({
+          year: Number(m.year),
+          month: Number(m.month)
+        }));
+      }
+    } catch (dbErr) {
+      console.error('Error fetching distinct months:', dbErr.message);
+    }
+
+    // Fallback if no distinct months returned from query
+    if (months.length === 0) {
+      const now = new Date();
+      for (let i = 0; i < 4; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        months.push({ year: d.getFullYear(), month: d.getMonth() + 1 });
+      }
     }
 
     // Step 2: For each month, fetch the single latest record
     const results = [];
     for (const { year, month } of months) {
       const startOfMonth = new Date(year, month - 1, 1);
-      const endOfMonth   = new Date(year, month, 0, 23, 59, 59, 999); // last day of month
+      const endOfMonth   = new Date(year, month, 0, 23, 59, 59, 999);
 
       const item = await prisma.development_work.findFirst({
         where: {
@@ -865,6 +886,9 @@ exports.getLatestDevelopmentWorkByYear = async (req, res) => {
 
       if (item) results.push({ ...item, year, month });
     }
+
+    // Sort chronologically from past to present (e.g. Month 1 -> Month 2 -> Month 3 -> Month 4)
+    results.sort((a, b) => new Date(b.news_date).getTime() - new Date(a.news_date).getTime());
 
     // Step 3: Attach thumbnail media for each result
     if (results.length > 0) {
@@ -911,7 +935,7 @@ exports.getLatestDevelopmentWorkByYear = async (req, res) => {
           results.map(item => translateDevelopmentWorkItem(item, targetLang))
         );
       } catch (transErr) {
-        console.error("Error translating latest-by-month:", transErr.message);
+        console.error('Error translating latest-by-month:', transErr.message);
       }
     }
 
@@ -920,3 +944,5 @@ exports.getLatestDevelopmentWorkByYear = async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 };
+
+exports.getLatestDevelopmentWorkByMonth = exports.getLatestDevelopmentWorkByYear;
