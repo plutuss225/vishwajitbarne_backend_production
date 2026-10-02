@@ -21,9 +21,10 @@ async function translateContactItem(item, targetLang) {
 
 // CREATE contact message (Public)
 exports.createContact = async (req, res) => {
-  const { name, phone_number, email, subject, message } = req.body;
+  const { name, phone_number, phone, email, subject, message } = req.body;
+  const contactPhone = phone_number || phone;
 
-  if (!name || !phone_number || !email || !subject || !message) {
+  if (!name || !contactPhone || !email || !subject || !message) {
     return res.status(400).json({ error: "All fields (name, phone_number, email, subject, message) are required" });
   }
 
@@ -31,7 +32,7 @@ exports.createContact = async (req, res) => {
     const result = await prisma.contact_messages.create({
       data: {
         name,
-        phone_number,
+        phone_number: contactPhone,
         email,
         subject,
         message,
@@ -68,7 +69,12 @@ exports.getAllContacts = async (req, res) => {
         result.map(item => translateContactItem(item, targetLang))
       );
     }
-    res.json(result);
+    const formattedResult = result.map(item => ({
+      ...item,
+      phone: item.phone_number || item.phone,
+      phone_number: item.phone_number || item.phone,
+    }));
+    res.json(formattedResult);
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
